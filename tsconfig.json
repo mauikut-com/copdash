@@ -1,8 +1,9 @@
 {
 	"extends": "astro/tsconfigs/strict",
 	"include": [".astro/types.d.ts", "**/*"],
-	"exclude": ["dist"],
+	"exclude": ["dist", "worker-configuration.d.ts"],
 	"compilerOptions": {
-		"strictNullChecks": true
+		"strictNullChecks": true,
+		"lib": ["ESNext", "DOM", "DOM.Iterable"]
 	}
 }
