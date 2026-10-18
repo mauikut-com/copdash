@@ -10,5 +10,12 @@
 	"observability": {
 		"enabled": true
 	},
-	"upload_source_maps": true
+	"upload_source_maps": true,
+	"d1_databases": [
+		{
+			"binding": "copdash_db",
+			"database_name": "copdash-db",
+			"database_id": "3c106fd9-92fc-4fec-9c10-0dd94ed2a5ae"
+		}
+	]
 }

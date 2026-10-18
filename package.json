@@ -32,7 +32,7 @@
 		"cf-typegen": "wrangler types",
 		"check": "astro build && tsc && wrangler deploy --dry-run",
 		"deploy": "wrangler deploy",
-		"dev": "astro dev",
+		"dev": "astro dev --host",
 		"preview": "astro build && wrangler dev"
 	},
 	"type": "module"
