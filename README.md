@@ -1,64 +1,108 @@
-# Astro Starter Kit: Blog
+# server-verdict
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/templates/tree/main/astro-blog-starter-template)
+A small FastAPI service that answers one question: **given a server spec and a
+load description, will the server crash?**
 
-![Astro Template Preview](https://github.com/withastro/astro/assets/2244813/ff10799f-a816-4703-b967-c78997e8323d)
+The current engine uses simple deterministic rules (demand vs. capacity per
+resource). A SimPy-based simulation engine will be added later, behind the same
+engine interface.
 
-<!-- dash-content-start -->
+> The API is unstable and may change without notice. Breaking changes are
+> expected.
 
-Create a blog with Astro and deploy it on Cloudflare Workers as a [static website](https://developers.cloudflare.com/workers/static-assets/).
+## Endpoints
 
-Features:
+| Method | Path            | Description                                  |
+| ------ | --------------- | -------------------------------------------- |
+| GET    | `/health`       | Liveness check.                              |
+| GET    | `/openapi.json` | Auto-generated OpenAPI spec.                 |
+| GET    | `/docs`         | Swagger UI.                                  |
+| POST   | `/verdict`      | Evaluate a spec + load and return a verdict. |
+| GET    | `/engines`      | List available engines.                      |
 
-- ✅ Minimal styling (make it your own!)
-- ✅ 100/100 Lighthouse performance
-- ✅ SEO-friendly with canonical URLs and OpenGraph data
-- ✅ Sitemap support
-- ✅ RSS Feed support
-- ✅ Markdown & MDX support
-- ✅ Built-in Observability logging
+## Engines
 
-<!-- dash-content-end -->
+Each engine implements the `VerdictEngine` protocol (`name` plus `evaluate`) and
+is registered in `app/engines/__init__.py`. The rules engine lives in
+`app/engines/rules.py`, with all of its formulas in that one file. To add the
+future SimPy engine, drop in a `SimPyEngine` module and register it in that
+registry — it becomes available automatically through `/engines` and
+`/verdict` with `"engine": "simpy"`. A commented stub marks the exact spot.
 
-## Getting Started
+## Local development
 
-Outside of this repo, you can start a new project with this template using [C3](https://developers.cloudflare.com/pages/get-started/c3/) (the `create-cloudflare` CLI):
+Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
-npm create cloudflare@latest -- --template=cloudflare/templates/astro-blog-starter-template
+uv sync                # create the venv and install dependencies
+uv run uvicorn app.main:app --reload
 ```
 
-A live public deployment of this template is available at [https://astro-blog-starter-template.templates.workers.dev](https://astro-blog-starter-template.templates.workers.dev)
+The API is served at <http://127.0.0.1:8000>, with docs at
+<http://127.0.0.1:8000/docs>.
 
-## 🚀 Project Structure
+## Tests
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+```bash
+uv run pytest
+```
 
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
+## curl examples
 
-The `src/content/` directory contains "collections" of related Markdown and MDX documents. Use `getCollection()` to retrieve posts from `src/content/blog/`, and type-check your frontmatter using an optional schema. See [Astro's Content Collections docs](https://docs.astro.build/en/guides/content-collections/) to learn more.
+```bash
+curl -s http://127.0.0.1:8000/health
 
-Any static assets, like images, can be placed in the `public/` directory.
+curl -s http://127.0.0.1:8000/engines
 
-## 🧞 Commands
+curl -s -X POST http://127.0.0.1:8000/verdict \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "spec": {
+      "cpu": { "cores": 4, "clock_ghz": 2.5 },
+      "ram": { "total_mb": 8192 },
+      "network": { "bandwidth_mbps": 1000, "max_connections": 10000 }
+    },
+    "load": {
+      "rps": 100,
+      "avg_cpu_ms_per_req": 10,
+      "avg_mem_mb_per_req": 5,
+      "concurrent_connections": 100,
+      "payload_kb": 10
+    }
+  }'
+```
 
-All commands are run from the root of the project, from a terminal:
+## Deploying to Render
 
-| Command                           | Action                                           |
-| :-------------------------------- | :----------------------------------------------- |
-| `npm install`                     | Installs dependencies                            |
-| `npm run dev`                     | Starts local dev server at `localhost:4321`      |
-| `npm run build`                   | Build your production site to `./dist/`          |
-| `npm run preview`                 | Preview your build locally, before deploying     |
-| `npm run astro ...`               | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help`         | Get help using the Astro CLI                     |
-| `npm run build && npm run deploy` | Deploy your production site to Cloudflare        |
-| `npm wrangler tail`               | View real-time logs for all Workers              |
+1. Push this repository to GitHub.
+2. In the Render dashboard, go to **New > Blueprint** and point it at the repo.
+   Render reads `render.yaml` and creates the web service on the free plan.
+3. (Optional) Set the `API_KEY` environment variable on the service to require
+   a `Bearer` token on `/verdict` and `/engines`. When it is unset, no auth is
+   enforced.
 
-## 👀 Want to learn more?
+## Notes
 
-Check out [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+- **Free plan sleep:** Render's free web service sleeps after ~15 minutes of
+  inactivity. The first request after a sleep can take 30–60 seconds while the
+  service spins back up.
+- **Optional API key:** send `Authorization: Bearer <key>` to authenticate.
+  Leave `API_KEY` unset to skip auth entirely.
+- **No persistence:** there is no database; every verdict is computed on the
+  fly from the request.
 
-## Credit
+## Where the SimPy engine plugs in
 
-This theme is based off of the lovely [Bear Blog](https://github.com/HermanMartinus/bearblog/).
+app/engines/__init__.py has a commented stub at the ENGINES registry:
+
+```
+# from app.engines.simpy import SimPyEngine
+# ENGINES["simpy"] = SimPyEngine()
+```
+
+Drop in a SimPyEngine implementing the same VerdictEngine Protocol (name "simpy", evaluate(EvaluationInput) -> VerdictResult) and
+uncomment those two lines. It's immediately available via GET /engines and POST /verdict with "engine": "simpy" — no changes
+needed to main.py, the schemas, or the HTTP layer.
+
+One note: clock_ghz is currently validated but unused by the rules engine (it only keys off core count); it's documented in
+schemas.py as reserved for the future simulation engine.
