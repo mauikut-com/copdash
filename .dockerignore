@@ -1,0 +1,16 @@
+# VCS / local state
+.git
+.gitignore
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.env
+
+# Not needed in the image
+tests
+deploy
+README.md
+render.yaml
+Makefile
+.python-version
