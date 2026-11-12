@@ -29,6 +29,21 @@ future SimPy engine, drop in a `SimPyEngine` module and register it in that
 registry — it becomes available automatically through `/engines` and
 `/verdict` with `"engine": "simpy"`. A commented stub marks the exact spot.
 
+## Deployment targets
+
+One codebase, three ways to deploy (no target-specific code in the app — all
+differences live under `deploy/`):
+
+| Target                              | How                                                                 | Use when                                    |
+| ----------------------------------- | ------------------------------------------------------------------- | ------------------------------------------- |
+| Render (native Python)              | `render.yaml` Blueprint — no Docker                                 | Simplest free host; no image to manage      |
+| Back4app Containers (from image)    | Push a private image, then reference it (see `deploy/back4app-image.md`) | Not currently offered by Back4app — see note |
+| Back4app Containers (from repo)     | Back4app builds the root `Dockerfile` (see `deploy/back4app-repo.md`) | Back4app's supported path                   |
+
+> Back4app Containers currently only builds from a connected GitHub repo, so use
+> `deploy/back4app-repo.md`. Full steps per target: `deploy/render.md`,
+> `deploy/back4app-image.md`, `deploy/back4app-repo.md`.
+
 ## Local development
 
 Requires [uv](https://docs.astral.sh/uv/).
@@ -46,6 +61,26 @@ The API is served at <http://127.0.0.1:8000>, with docs at
 ```bash
 uv run pytest
 ```
+
+## Docker
+
+```bash
+make build   # build the image locally
+make run     # docker run --rm -p 8080:8080 <image>
+make push    # build + push (set IMAGE, e.g. <dockerhub-user>/server-verdict)
+```
+
+Or with the scripts directly:
+
+```bash
+docker buildx build --platform linux/amd64 -t server-verdict:latest --load .
+docker run --rm -p 8080:8080 server-verdict:latest
+IMAGE=<dockerhub-user>/server-verdict ./deploy/push.sh   # or ghcr.io/<owner>/server-verdict
+```
+
+`push.sh` runs the tests, builds for `linux/amd64`, tags the image with the
+short git commit SHA (plus `-dirty` when the tree is dirty) and `latest`, and
+pushes both. Set `IMAGE` (required) and optionally `PLATFORM`.
 
 ## curl examples
 
@@ -80,6 +115,8 @@ curl -s -X POST http://127.0.0.1:8000/verdict \
 3. (Optional) Set the `API_KEY` environment variable on the service to require
    a `Bearer` token on `/verdict` and `/engines`. When it is unset, no auth is
    enforced.
+
+For manual setup (or other hosts), see the `deploy/` directory.
 
 ## Notes
 
