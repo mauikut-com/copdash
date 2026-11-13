@@ -3,9 +3,11 @@
 A small FastAPI service that answers one question: **given a server spec and a
 load description, will the server crash?**
 
-The current engine uses simple deterministic rules (demand vs. capacity per
-resource). A SimPy-based simulation engine will be added later, behind the same
-engine interface.
+Two engines answer the question behind the same interface:
+
+- **rules** — simple deterministic rules (demand vs. capacity per resource).
+- **simpy** — a minimal discrete-event simulation (SimPy) of the CPU, RAM, and
+  network blocks.
 
 > The API is unstable and may change without notice. Breaking changes are
 > expected.
@@ -24,10 +26,8 @@ engine interface.
 
 Each engine implements the `VerdictEngine` protocol (`name` plus `evaluate`) and
 is registered in `app/engines/__init__.py`. The rules engine lives in
-`app/engines/rules.py`, with all of its formulas in that one file. To add the
-future SimPy engine, drop in a `SimPyEngine` module and register it in that
-registry — it becomes available automatically through `/engines` and
-`/verdict` with `"engine": "simpy"`. A commented stub marks the exact spot.
+`app/engines/rules.py`, with all of its formulas in that one file; the SimPy
+engine lives in `app/engines/simpy.py`.
 
 ## Deployment targets
 
@@ -107,6 +107,40 @@ curl -s -X POST http://127.0.0.1:8000/verdict \
   }'
 ```
 
+## Examples
+
+Each row is a self-contained request and the exact response it returns.
+
+| Scenario | Request | Expected response |
+|----------|---------|-------------------|
+| Survive (default `rules`) | `curl -s -X POST http://127.0.0.1:8000/verdict -H 'Content-Type: application/json' -d '{"spec":{"cpu":{"cores":4,"clock_ghz":2.5},"ram":{"total_mb":8192},"network":{"bandwidth_mbps":1000,"max_connections":10000}},"load":{"rps":100,"avg_cpu_ms_per_req":10,"avg_mem_mb_per_req":5,"concurrent_connections":100,"payload_kb":10}}'` | `{"verdict":"will_survive","confidence":0.84,"bottleneck":"cpu","resources":{"cpu":{"utilization":0.25,"status":"ok"},"ram":{"utilization":0.061,"status":"ok"},"network":{"utilization":0.01,"status":"ok"}}}` |
+| At risk — CPU ~90% (`rps: 360`) | `curl -s -X POST http://127.0.0.1:8000/verdict -H 'Content-Type: application/json' -d '{"spec":{"cpu":{"cores":4,"clock_ghz":2.5},"ram":{"total_mb":8192},"network":{"bandwidth_mbps":1000,"max_connections":10000}},"load":{"rps":360,"avg_cpu_ms_per_req":10,"avg_mem_mb_per_req":5,"concurrent_connections":100,"payload_kb":10}}'` | `{"verdict":"at_risk","confidence":1.0,"bottleneck":"cpu","resources":{"cpu":{"utilization":0.9,"status":"warning"},"ram":{"utilization":0.061,"status":"ok"},"network":{"utilization":0.0288,"status":"ok"}}}` |
+| Crash — CPU-bound (`rps: 2000`, `avg_cpu_ms_per_req: 3`) | `curl -s -X POST http://127.0.0.1:8000/verdict -H 'Content-Type: application/json' -d '{"spec":{"cpu":{"cores":4,"clock_ghz":2.5},"ram":{"total_mb":8192},"network":{"bandwidth_mbps":1000,"max_connections":10000}},"load":{"rps":2000,"avg_cpu_ms_per_req":3,"avg_mem_mb_per_req":5,"concurrent_connections":100,"payload_kb":10}}'` | `{"verdict":"will_crash","confidence":1.0,"bottleneck":"cpu","resources":{"cpu":{"utilization":1.5,"status":"critical"},"ram":{"utilization":0.061,"status":"ok"},"network":{"utilization":0.16,"status":"ok"}}}` |
+| SimPy engine — same load as row 1 | `curl -s -X POST http://127.0.0.1:8000/verdict -H 'Content-Type: application/json' -d '{"engine":"simpy","spec":{"cpu":{"cores":4,"clock_ghz":2.5},"ram":{"total_mb":8192},"network":{"bandwidth_mbps":1000,"max_connections":10000}},"load":{"rps":100,"avg_cpu_ms_per_req":10,"avg_mem_mb_per_req":5,"concurrent_connections":100,"payload_kb":10}}'` | `{"verdict":"will_survive","confidence":0.85,"bottleneck":"cpu","resources":{"cpu":{"utilization":0.2458,"status":"ok"},"ram":{"utilization":0.0006,"status":"ok"},"network":{"utilization":0.0079,"status":"ok"}}}` |
+
+The full response also includes a `reasons` list (human-readable derivation steps).
+For the first example above, the complete body is:
+
+```json
+{
+  "verdict": "will_survive",
+  "confidence": 0.84,
+  "bottleneck": "cpu",
+  "resources": {
+    "cpu":     {"utilization": 0.25,  "status": "ok"},
+    "ram":     {"utilization": 0.061, "status": "ok"},
+    "network": {"utilization": 0.01,  "status": "ok"}
+  },
+  "reasons": [
+    "CPU: 1.00 of 4.00 cores busy (25.0%).",
+    "RAM: 500 of 8192 MB used (6.1%).",
+    "Network: 8.0 Mbps bandwidth (0.8%), 100/10000 connections (1.0%).",
+    "Peak utilization 25.0% on cpu; verdict will_survive."
+  ],
+  "engine": "rules"
+}
+```
+
 ## Deploying to Render
 
 1. Push this repository to GitHub.
@@ -130,16 +164,12 @@ For manual setup (or other hosts), see the `deploy/` directory.
 
 ## Where the SimPy engine plugs in
 
-app/engines/__init__.py has a commented stub at the ENGINES registry:
+`app/engines/simpy.py` implements `SimPyEngine` (name `"simpy"`), registered in
+`app/engines/__init__.py`. It models the CPU, RAM, and network blocks as SimPy
+resources and reuses the rules engine's 80%/100% verdict thresholds. See
+`docs/simpy-dataset.md` for the synthetic dataset requirements its validation
+exposes.
 
-```
-# from app.engines.simpy import SimPyEngine
-# ENGINES["simpy"] = SimPyEngine()
-```
-
-Drop in a SimPyEngine implementing the same VerdictEngine Protocol (name "simpy", evaluate(EvaluationInput) -> VerdictResult) and
-uncomment those two lines. It's immediately available via GET /engines and POST /verdict with "engine": "simpy" — no changes
-needed to main.py, the schemas, or the HTTP layer.
-
-One note: clock_ghz is currently validated but unused by the rules engine (it only keys off core count); it's documented in
-schemas.py as reserved for the future simulation engine.
+One note: `clock_ghz` is currently validated but unused by either engine (the
+rules engine keys off core count only; the SimPy engine keys off cores and
+per-request cost); it's documented in `schemas.py` as reserved.

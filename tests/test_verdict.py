@@ -37,7 +37,7 @@ def test_openapi_json(client: TestClient):
 def test_engines(client: TestClient):
     resp = client.get("/engines")
     assert resp.status_code == 200
-    assert resp.json() == {"engines": ["rules"]}
+    assert resp.json() == {"engines": ["rules", "simpy"]}
 
 
 def test_survive(client: TestClient):
@@ -92,7 +92,7 @@ def test_validation_error(client: TestClient):
 
 
 def test_unknown_engine(client: TestClient):
-    resp = post_verdict(client, BASE_SPEC, BASE_LOAD, engine="simpy")
+    resp = post_verdict(client, BASE_SPEC, BASE_LOAD, engine="nonsense")
     assert resp.status_code == 422
 
 
